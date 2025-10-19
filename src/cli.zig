@@ -13,11 +13,18 @@ pub const Command = union(enum) {
     @"-v",
     @"--version",
     version,
+
+    @"hash-object": HashObject,
 };
 
 pub const CatFile = struct {
     pritty_print: bool = false,
     object: []const u8,
+};
+
+pub const HashObject = struct {
+    write: bool = false,
+    file_path: []const u8 = "",
 };
 
 pub const ParseError = error{
@@ -67,6 +74,8 @@ pub fn parseCommands(args: *std.process.ArgIterator, err_out: *std.Io.Writer) !C
                     try stdout.flush();
                     return .version;
                 },
+
+                .@"hash-object" => return try parseHashObject(args, err_out),
             }
         }
 
@@ -92,6 +101,26 @@ pub fn parseCatFile(args: *std.process.ArgIterator, err_out: *std.Io.Writer) !Co
         try err_out.print("cat-file currently do not support other options", .{});
         try err_out.flush();
         return error.WrongArg;
+    }
+
+    try err_out.print("you must supply more args", .{});
+    try err_out.flush();
+    return error.MissingArg;
+}
+
+pub fn parseHashObject(args: *std.process.ArgIterator, err_out: *std.Io.Writer) !Command {
+    var hash_obj: HashObject = .{};
+    if (args.next()) |option| {
+        if (std.mem.eql(u8, option, "-w")) {
+            hash_obj.write = true;
+            hash_obj.file_path = args.next() orelse return error.MissingArg;
+            return .{ .@"hash-object" = hash_obj };
+        }
+
+        if (std.mem.startsWith(u8, option, "-")) return error.UnsupportedCommand;
+
+        hash_obj.file_path = option;
+        return .{ .@"hash-object" = hash_obj };
     }
 
     try err_out.print("you must supply more args", .{});
