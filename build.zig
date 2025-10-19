@@ -5,6 +5,9 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const options = b.addOptions();
+    options.addOption([]const u8, "version", manifest.version);
+
     const exe = b.addExecutable(.{
         .name = @tagName(manifest.name),
         .root_module = b.createModule(.{
@@ -13,6 +16,9 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+
+    exe.root_module.addOptions("build_options", options);
+
     b.installArtifact(exe);
 
     const run_exe = b.addRunArtifact(exe);
