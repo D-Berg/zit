@@ -36,14 +36,30 @@ pub fn catFile(opts: cli.CatFile) !void {
     };
     defer object_dir.close();
 
-    var hash_dir = object_dir.openDir(opts.object[0..2], .{}) catch |err| {
+    var hash_dir = object_dir.openDir(opts.object[0..2], .{ .iterate = true }) catch |err| {
         try stderr.print("fatal: failed to open objects/{s}", .{opts.object[0..2]});
         try stderr.flush();
         return err;
     };
     defer hash_dir.close();
 
-    const object_file = hash_dir.openFile(opts.object[2..], .{}) catch |err| {
+    const object_file = object_file: {
+        if (opts.object.len == 40) break :object_file hash_dir.openFile(opts.object[2..], .{});
+        if (opts.object.len >= 6) {
+            var it = hash_dir.iterate();
+            while (try it.next()) |entry| {
+                switch (entry.kind) {
+                    .file => {
+                        if (std.mem.startsWith(u8, entry.name, opts.object[2..])) {
+                            break :object_file try hash_dir.openFile(entry.name, .{});
+                        }
+                    },
+                    else => continue,
+                }
+            }
+        }
+        break :object_file error.FileNotFound;
+    } catch |err| {
         try stderr.print("fatal: failed to open {s}", .{opts.object[2..]});
         try stderr.flush();
         return err;
