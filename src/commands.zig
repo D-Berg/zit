@@ -1,6 +1,7 @@
 const std = @import("std");
 const cli = @import("cli.zig");
 const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
 
 var stdout_buf: [64]u8 = undefined;
 var stdout_writer = std.fs.File.stdout().writer(&stdout_buf);
@@ -81,4 +82,62 @@ pub fn catFile(opts: cli.CatFile) !void {
 
     try decompressor.reader.streamExact(stdout, len);
     try stdout.flush();
+}
+
+pub fn hashObject(gpa: Allocator, opts: cli.HashObject) !void {
+    var sha1 = std.crypto.hash.Sha1.init(.{});
+
+    const in_file = try std.fs.cwd().openFile(opts.file_path, .{});
+    defer in_file.close();
+
+    var in_buf: [1024]u8 = undefined;
+    var file_reader = in_file.reader(&in_buf);
+    const in = &file_reader.interface;
+
+    var wa = std.Io.Writer.Allocating.init(gpa);
+    defer wa.deinit();
+
+    const file_len = try in.streamRemaining(&wa.writer);
+    var file_len_buf: [128]u8 = undefined;
+
+    const file_len_str = try std.fmt.bufPrintZ(&file_len_buf, "{d}", .{file_len});
+
+    sha1.update("blob ");
+    sha1.update(file_len_str[0..(file_len_str.len + 1)]);
+    sha1.update(wa.written());
+    const hash = sha1.finalResult();
+
+    var readable_hash_buf: [std.crypto.hash.Sha1.digest_length * 2]u8 = undefined;
+    const readable_hash = try std.fmt.bufPrint(&readable_hash_buf, "{x}", .{hash[0..]});
+
+    try stdout.print("{s}\n", .{readable_hash});
+    try stdout.flush();
+
+    if (opts.write) {
+        var objects_dir = try std.fs.cwd().openDir(".git/objects", .{});
+        defer objects_dir.close();
+
+        try objects_dir.makePath(readable_hash[0..2]);
+
+        var blob_dir = try objects_dir.openDir(readable_hash[0..2], .{});
+        defer blob_dir.close();
+
+        const obj_file = try blob_dir.createFile(readable_hash[2..], .{});
+        defer obj_file.close();
+
+        var out_buf: [1024]u8 = undefined;
+        var out_writer = obj_file.writer(&out_buf);
+
+        var compress_buf: [std.compress.flate.max_window_len]u8 = undefined;
+        var compressor = try std.compress.flate.Compress.init(&out_writer.interface, &compress_buf, .zlib, .default);
+
+        try compressor.writer.print("blob {d}", .{file_len});
+        try compressor.writer.writeByte(0);
+
+        var reader = std.Io.Reader.fixed(wa.written());
+
+        assert(file_len == try reader.streamRemaining(&compressor.writer));
+        try compressor.writer.flush();
+        try out_writer.interface.flush();
+    }
 }

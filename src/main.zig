@@ -42,9 +42,7 @@ pub fn main() !u8 {
             try stdout.print("{s}", .{msg});
             try stdout.flush();
         },
-        .@"hash-object" => |opts| {
-            std.debug.print("hash-object: w: {}, file: {s}\n", .{ opts.write, opts.file_path });
-        },
+        .@"hash-object" => |opts| try commands.hashObject(gpa, opts),
         else => {},
     }
 
