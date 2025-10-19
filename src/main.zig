@@ -31,12 +31,7 @@ pub fn main() !u8 {
     const command = try cli.parseCommands(&arg_it);
     switch (command) {
         .init => try commands.init(),
-        .@"cat-file" => |cat_file| {
-            std.debug.print("cat-file: pretty: {}, obj: {s}\n", .{
-                cat_file.pritty_print,
-                cat_file.object,
-            });
-        },
+        .@"cat-file" => |opts| try commands.catFile(opts),
         .diagnostic => |msg| {
             try stderr.print("{s}\n", .{msg});
             try stderr.flush();

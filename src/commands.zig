@@ -1,9 +1,16 @@
 const std = @import("std");
-pub fn init() !void {
-    var stdout_buf: [64]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buf);
-    const stdout = &stdout_writer.interface;
+const cli = @import("cli.zig");
+const assert = std.debug.assert;
 
+var stdout_buf: [64]u8 = undefined;
+var stdout_writer = std.fs.File.stdout().writer(&stdout_buf);
+const stdout = &stdout_writer.interface;
+
+var stderr_buf: [64]u8 = undefined;
+var stderr_writer = std.fs.File.stderr().writer(&stderr_buf);
+const stderr = &stderr_writer.interface;
+
+pub fn init() !void {
     try std.fs.cwd().makePath(".git/objects");
     try std.fs.cwd().makePath(".git/refs");
 
@@ -19,4 +26,43 @@ pub fn init() !void {
     try fw.interface.flush();
 
     try stdout.print("Initialized git directory", .{});
+}
+
+pub fn catFile(opts: cli.CatFile) !void {
+    var object_dir = std.fs.cwd().openDir(".git/objects", .{}) catch |err| {
+        try stderr.print("fatal: failed to open dir .git/objects", .{});
+        try stderr.flush();
+        return err;
+    };
+    defer object_dir.close();
+
+    var hash_dir = object_dir.openDir(opts.object[0..2], .{}) catch |err| {
+        try stderr.print("fatal: failed to open objects/{s}", .{opts.object[0..2]});
+        try stderr.flush();
+        return err;
+    };
+    defer hash_dir.close();
+
+    const object_file = hash_dir.openFile(opts.object[2..], .{}) catch |err| {
+        try stderr.print("fatal: failed to open {s}", .{opts.object[2..]});
+        try stderr.flush();
+        return err;
+    };
+    defer object_file.close();
+
+    var read_buf: [1024]u8 = undefined;
+    var file_reader = object_file.reader(&read_buf);
+    const fr = &file_reader.interface;
+
+    var decompress_buf: [std.compress.flate.max_window_len]u8 = undefined;
+    var decompressor = std.compress.flate.Decompress.init(fr, .zlib, &decompress_buf);
+
+    // kind
+    _ = try decompressor.reader.takeDelimiter(' ') orelse return error.MissingObjectType;
+
+    const len_str = try decompressor.reader.takeDelimiter(0) orelse return error.MissingObjectType;
+    const len = try std.fmt.parseInt(usize, len_str, 10);
+
+    try decompressor.reader.streamExact(stdout, len);
+    try stdout.flush();
 }
